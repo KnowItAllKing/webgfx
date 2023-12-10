@@ -1,189 +1,255 @@
 <!DOCTYPE html>
-<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7"> <![endif]-->
-<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8"> <![endif]-->
-<!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
-<!--[if gt IE 8]>      <html class="no-js"> <!--<![endif]-->
 <html>
 
 <head>
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title></title>
-  <meta name="description" content="">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="">
+    <meta charset="utf-8">
+    <title>WebGL Ray Tracing Phong Shading Spheres</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js" defer></script>
+    <script src="util.js" defer></script>
 </head>
 
 <body>
-  <!--[if lt IE 7]>
-      <p class="browsehappy">You are using an <strong>outdated</strong> browser. Please <a href="#">upgrade your browser</a> to improve your experience.</p>
-    <![endif]-->
-  <p>A</p>
-  <!-- Uses code from https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Getting_started_with_WebGL as a baseline -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"
-    integrity="sha512-zhHQR0/H5SEBL3Wn6yYSaTTZej12z0hVZKOv3TwCUXT1z5qeqGcXJLLrbERYRScEDDpYIJhPC1fk31gqR783iQ=="
-    crossorigin="anonymous" defer></script>
-  <canvas id="canvas" width="600" height="400" />
+    <canvas id="canvas" width="600" height="400"></canvas>
+    <script id="fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+        precision highp float;
+        #endif
+        uniform vec3 cameraPos;
+        uniform vec3 sphereCenter;
+        uniform float sphereRadius;
+        uniform vec3 uLightPosition;
+        uniform vec4 uLightColor;
+        uniform mat4 uInverseViewMatrix;
+        uniform mat4 uInverseProjectionMatrix;
 
-  <!-- <script src="index.js"></script> -->
-  <script id="fragment-shader" type="x-shader/x-fragment">
-    #ifdef GL_ES
-      precision highp float;
-    #endif
-  
-    uniform vec4 uGlobalColor;
-  
-    void main() {
-      gl_FragColor = uGlobalColor;
-    }
-  </script>
-  <script id="vertex-shader" type="x-shader/x-vertex">
-    attribute vec2 aVertexPosition;
-    uniform vec2 uScalingFactor;
-    
-    void main() {
-      gl_Position = vec4(aVertexPosition * uScalingFactor, 0.0, 1.0);
-    }
-  </script>
-  <script>
-    let gl = null;
-    let glCanvas = null;
+        struct Ray {
+            vec3 origin;
+            vec3 direction;
+        };
 
-    // Aspect ratio and coordinate system
-    // details
+        float intersectSphere(Ray ray) {
+            vec3 co = ray.origin - sphereCenter;
+            float discriminant = dot(co, ray.direction) * dot(co, ray.direction) - (dot(co, co) - sphereRadius * sphereRadius);
 
-    let aspectRatio;
-    let currentRotation = [0, 1];
-    let currentScale = [1.0, 1.0];
-
-    // Vertex information
-
-    let vertexArray;
-    let vertexBuffer;
-    let vertexNumComponents;
-    let vertexCount;
-
-    // Rendering data shared with the
-    // scalers.
-
-    let uScalingFactor;
-    let uGlobalColor;
-    let uRotationVector;
-    let aVertexPosition;
-
-    // Animation timing
-
-    let shaderProgram;
-    let currentAngle;
-    let previousTime = 0.0;
-    let degreesPerSecond = 90.0;
-
-    const compileShader = (id, type) => {
-      const code = document.getElementById(id).firstChild.nodeValue;
-      const shader = gl.createShader(type);
-
-      gl.shaderSource(shader, code);
-      gl.compileShader(shader);
-
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.log(
-          `Error compiling ${
-          type === gl.VERTEX_SHADER ? "vertex" : "fragment"
-        } shader:`,
-        );
-        console.log(gl.getShaderInfoLog(shader));
-      }
-      return shader;
-    };
-
-    const buildShaderProgram = (shaderInfo) => {
-      const program = gl.createProgram();
-
-      shaderInfo.forEach((desc) => {
-        const shader = compileShader(desc.id, desc.type);
-
-        if (shader) {
-          gl.attachShader(program, shader);
+            if (discriminant >= -0.9) {
+                return -dot(ray.direction, co) - sqrt(discriminant);
+            } else {
+                return -1.0;
+            }
         }
-      });
 
-      gl.linkProgram(program);
+        void main() {
+            // normalized device coordinate transform
+            vec2 ndc = (gl_FragCoord.xy / vec2(600.0, 400.0)) * 2.0 - 1.0;
+            ndc.y = -ndc.y;
 
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        console.log("Error linking shader program:");
-        console.log(gl.getProgramInfoLog(program));
-      }
+            // convert the screen coordinates (pixel x and y) to NDC and then 
+            // transform these NDCs to world (3d) coordinates
+            vec4 rayStart = uInverseProjectionMatrix * vec4(ndc, 0.0, 1.0);
+            rayStart = rayStart / rayStart.w;
+            rayStart = uInverseViewMatrix * rayStart;
 
-      return program;
-    };
+            vec3 rayDir = normalize(rayStart.xyz - cameraPos);
 
-    const animateScene = (currentTime) => {
-      currentTime *= 0.001;
+            Ray ray = Ray(cameraPos, rayDir);
 
-      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
-      gl.clearColor(0.8, 0.9, 1.0, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
+            float t = intersectSphere(ray);
 
-      const scaleMagnitude = Math.sin(currentTime % (2 * Math.PI)) * 0.5 + 1;
-      currentScale = [scaleMagnitude, scaleMagnitude];
+            if (t >= -0.01) {
+                vec3 hit = ray.origin + t * ray.direction;
 
-      gl.useProgram(shaderProgram);
+                vec3 normal = normalize(hit - sphereCenter);
+                
+                vec3 lightDir = normalize(uLightPosition - hit);
+                float diff = max(dot(lightDir, normal), 0.0);
+                vec3 diffuse = diff * vec3(uLightColor);
 
-      uScalingFactor = gl.getUniformLocation(shaderProgram, "uScalingFactor");
-      uGlobalColor = gl.getUniformLocation(shaderProgram, "uGlobalColor");
-
-      gl.uniform2fv(uScalingFactor, currentScale);
-      gl.uniform4fv(uGlobalColor, [0.1, 0.7, 0.2, 1.0]);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-
-      aVertexPosition = gl.getAttribLocation(shaderProgram, "aVertexPosition");
-      gl.enableVertexAttribArray(aVertexPosition);
-      gl.vertexAttribPointer(aVertexPosition, vertexNumComponents, gl.FLOAT, false, 0, 0);
-
-      gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
-
-      requestAnimationFrame(animateScene);
-    };
+                gl_FragColor = vec4(diffuse, 1.0);
+            } else {
+                gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            }
+        }
+    </script>
 
 
-    const startup = () => {
-      glCanvas = document.getElementById("canvas");
-      gl = glCanvas.getContext("webgl");
+    <script id="vertex-shader" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+        uniform mat4 uModelMatrix;
+        uniform mat4 uViewMatrix;
+        uniform mat4 uProjectionMatrix;
+        void main() {
+            gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aVertexPosition, 1.0);
+        }
+    </script>
 
-      const shaderSet = [{
-          type: gl.VERTEX_SHADER,
-          id: "vertex-shader",
-        },
-        {
-          type: gl.FRAGMENT_SHADER,
-          id: "fragment-shader",
-        },
-      ];
+    <script>
+        let gl = null;
+        let glCanvas = null;
 
-      shaderProgram = buildShaderProgram(shaderSet);
+        // Vertex information
+        let vertexArray, vertexBuffer, indexArray, indexBuffer;
 
-      aspectRatio = glCanvas.width / glCanvas.height;
-      currentRotation = [0, 1];
-      currentScale = [1.0, aspectRatio];
+        // Rendering data
+        let uModelMatrix, uViewMatrix, uProjectionMatrix, uLightPosition, uLightColor, uSphereCenter, uSphereRadius,
+            uCameraPos, uInverseViewMatrix, uInverseProjectionMatrix, shaderProgram;
 
-      vertexArray = new Float32Array([
-        -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5,
-      ]);
+        const spherePositions = [
+            [0, 0, 0],
+            [10, 0, 0],
+            [-10, 0, 0]
+        ];
 
-      vertexBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, vertexArray, gl.STATIC_DRAW);
+        const sphereRadius = 2.0;
 
-      vertexNumComponents = 2;
-      vertexCount = vertexArray.length / vertexNumComponents;
+        const lightPosition = [0.0, 10.0, 0.0];
 
-      currentAngle = 0.0;
+        const lightColor = [1.0, 0.0, 1.0, 1.0];
 
-      animateScene();
-    };
-    window.addEventListener("load", startup, false);
-  </script>
+        const cameraPos = [0.0, 0.0, -20.0];
+
+        const compileShader = (id, type) => {
+            const code = document.getElementById(id).firstChild.nodeValue;
+            const shader = gl.createShader(type);
+
+            gl.shaderSource(shader, code);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.log(
+                    `Error compiling ${
+                  type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'
+                } shader:`,
+                );
+                console.log(gl.getShaderInfoLog(shader));
+            }
+            return shader;
+        };
+        const buildShaderProgram = (shaderInfo) => {
+            const program = gl.createProgram();
+
+            shaderInfo.forEach((desc) => {
+                const shader = compileShader(desc.id, desc.type);
+
+                if (shader) {
+                    gl.attachShader(program, shader);
+                }
+            });
+
+            gl.linkProgram(program);
+
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.log('Error linking shader program:');
+                console.log(gl.getProgramInfoLog(program));
+            }
+
+            return program;
+        };
+
+        const animateScene = (currentTime) => {
+            gl.enable(gl.DEPTH_TEST);
+            gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+            gl.clearColor(0.8, 0.9, 1.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            gl.uniform3fv(uLightPosition, lightPosition);
+            gl.uniform4fv(uLightColor, lightColor);
+            gl.uniform3fv(uCameraPos, cameraPos);
+
+            let viewMatrix = mat4.create();
+            let projectionMatrix = mat4.create();
+            mat4.perspective(projectionMatrix, 45 * Math.PI / 180, glCanvas.width / glCanvas.height, 0.1, 100.0);
+            mat4.lookAt(viewMatrix, cameraPos, [0, 0, 0], [0, 1, 0]);
+
+            gl.uniformMatrix4fv(uViewMatrix, false, viewMatrix);
+            gl.uniformMatrix4fv(uProjectionMatrix, false, projectionMatrix);
+
+            let inverseViewMatrix = mat4.create();
+            let inverseProjectionMatrix = mat4.create();
+            mat4.invert(inverseViewMatrix, viewMatrix);
+            mat4.invert(inverseProjectionMatrix, projectionMatrix);
+
+            gl.uniformMatrix4fv(uInverseViewMatrix, false, inverseViewMatrix);
+            gl.uniformMatrix4fv(uInverseProjectionMatrix, false, inverseProjectionMatrix);
+
+            spherePositions.forEach((position, index) => {
+                let modelMatrix = mat4.create();
+                mat4.translate(modelMatrix, modelMatrix, position);
+                // mat4.scale(modelMatrix, modelMatrix, [0.3, 0.3, 0.3]);
+                gl.uniformMatrix4fv(uModelMatrix, false, modelMatrix);
+                // gl.uniform4fv(uColor, sphereColors[index]);
+
+                gl.uniform3fv(uSphereCenter, position);
+                gl.uniform1f(uSphereRadius, sphereRadius);
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+                gl.vertexAttribPointer(aVertexPosition, 3, gl.FLOAT, false, 0, 0);
+                gl.enableVertexAttribArray(aVertexPosition);
+
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+                gl.drawElements(gl.TRIANGLES, indexArray.length, gl.UNSIGNED_SHORT, 0);
+            });
+
+            requestAnimationFrame(animateScene);
+        };
+
+        const startup = () => {
+            glCanvas = document.getElementById('canvas');
+            gl = glCanvas.getContext('webgl');
+
+            const shaderSet = [{
+                    type: gl.VERTEX_SHADER,
+                    id: 'vertex-shader'
+                },
+                {
+                    type: gl.FRAGMENT_SHADER,
+                    id: 'fragment-shader'
+                }
+            ];
+
+            shaderProgram = buildShaderProgram(shaderSet);
+            gl.useProgram(shaderProgram);
+
+            uModelMatrix = gl.getUniformLocation(shaderProgram, 'uModelMatrix');
+            uViewMatrix = gl.getUniformLocation(shaderProgram, 'uViewMatrix');
+            uProjectionMatrix = gl.getUniformLocation(shaderProgram, 'uProjectionMatrix');
+            uInverseProjectionMatrix = gl.getUniformLocation(shaderProgram, 'uInverseProjectionMatrix');
+            uInverseViewMatrix = gl.getUniformLocation(shaderProgram, 'uInverseViewMatrix');
+            uLightPosition = gl.getUniformLocation(shaderProgram, 'uLightPosition');
+            uLightColor = gl.getUniformLocation(shaderProgram, 'uLightColor');
+            uSphereCenter = gl.getUniformLocation(shaderProgram, 'sphereCenter');
+            uSphereRadius = gl.getUniformLocation(shaderProgram, 'sphereRadius');
+            uCameraPos = gl.getUniformLocation(shaderProgram, 'cameraPos');
+
+            vertexArray = [];
+
+            // quad = createQuad([-1,-1,-18],[1,1,-18]);
+
+            // vertexArray = vertexArray.concat(generateSphereVertices(2, 20,
+            // 20)); // WebGL takes in flat lists of vertices,
+            // vertexArray = new Float32Array(vertexArray.concat(quad.vertices));                      // concat returns flat list
+            vertexArray = generateSphereVertices(sphereRadius, 20, 20);
+
+            vertexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexArray), gl.STATIC_DRAW);
+
+            indexArray = []; // WebGl takes in flat index lists
+            indexArray = indexArray.concat(generateIndicesForSphere(20, 20));
+            // indexArray = indexArray.concat(quad.indices)
+            indexArray = generateIndicesForSphere(20, 20);
+
+            indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexArray), gl.STATIC_DRAW);
+
+            aVertexPosition = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+
+            animateScene();
+        };
+
+        window.addEventListener('load', startup, false);
+    </script>
 </body>
 
 </html>
