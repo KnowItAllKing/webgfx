@@ -32,7 +32,7 @@
             vec3 co = ray.origin - sphereCenter;
             float discriminant = dot(co, ray.direction) * dot(co, ray.direction) - (dot(co, co) - sphereRadius * sphereRadius);
 
-            if (discriminant >= -0.9) {
+            if (discriminant >= 0.0) {
                 return -dot(ray.direction, co) - sqrt(discriminant);
             } else {
                 return -1.0;
@@ -56,7 +56,7 @@
 
             float t = intersectSphere(ray);
 
-            if (t >= -0.01) {
+            if (t >= 0.00) {
                 vec3 hit = ray.origin + t * ray.direction;
 
                 vec3 normal = normalize(hit - sphereCenter);
