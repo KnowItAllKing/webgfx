@@ -28,6 +28,9 @@
             <input type="range" min="0" max="255" value="255" class="slider" id="lb">
             <label for="la">A</label>
             <input type="range" min="0" max="100" value="100" class="slider" id="la">
+            <label for="rf">Reflectivity</label>
+            <input type="range" min="1" max="100" value="1" class="slider" id="rf">
+            <!-- Here create slider,  -->
 
             <h1>Sphere Radius</h1>
             <input type="number" value="1.0" id="sphereradius">
@@ -60,12 +63,14 @@
         uniform vec4 uLightColor;
         uniform mat4 uInverseViewMatrix;
         uniform mat4 uInverseProjectionMatrix;
+        uniform float uReflectivity;
 
         struct Ray {
             vec3 origin;
             vec3 direction;
         };
 
+        // Returns distance  of ray intersection
         float intersectSphere(Ray ray) {
             vec3 co = ray.origin - sphereCenter;
             float discriminant = dot(co, ray.direction) * dot(co, ray.direction) - (dot(co, co) - sphereRadius * sphereRadius);
@@ -75,6 +80,18 @@
             } else {
                 return -1.0;
             }
+        }
+        // I -> incident vector
+        // N -> normal vector at hit point
+        vec3 reflectRay(vec3 I, vec3 N) {
+            return I - 2.0 * dot(N, I) * N;
+        }
+
+        float schlickFresnel(vec3 viewDir, vec3 normal, float reflectivity) {
+            float r0 = (1.0 - reflectivity) / (1.0 + reflectivity);
+            r0 = r0 * r0;
+            float cosine = max(1.0 - dot(viewDir, normal), 0.0);
+            return r0 + (1.0 - r0) * pow(cosine, 5.0);
         }
 
         void main() {
@@ -95,17 +112,54 @@
             float t = intersectSphere(ray);
 
             if (t >= 0.0) {
-                vec3 hit = ray.origin + t * ray.direction;
-
+                vec3 hit = ray.origin + t * ray.direction; // Position of our intersection
                 vec3 normal = normalize(hit - sphereCenter);
-                
                 vec3 lightDir = normalize(uLightPosition - hit);
                 float diff = max(dot(lightDir, normal), 0.0);
-                vec3 diffuse = diff * vec3(uLightColor);
+                vec3 diffuse =   diff * vec3(uLightColor);
 
-                gl_FragColor = vec4(diffuse, 1.0);
+                vec3 reflectedRayDir = reflectRay(ray.direction, normal);
+                vec3 reflectedColor = vec3(0.8, 0.9, 1.0); // We want it to be equal skybox if no intersection 
+                
+                Ray reflectedRay = Ray(hit, reflectedRayDir);
+
+                float tReflected = intersectSphere(reflectedRay); // We need to change this so that it can check for intersections with other spheres
+                float reflectionFactor = uReflectivity/100.0;
+
+                vec3 viewDirection = normalize(cameraPos - hit);
+                float fresnelFactor = schlickFresnel(viewDirection, normal, uReflectivity);
+
+
+                if (tReflected >= 0.0) {
+                    // We would need to change this code in order to account for new spheres
+                    vec3 reflectedHit = reflectedRay.origin + tReflected * reflectedRay.direction; // Position of our intersection
+                    vec3 reflectedNormal = normalize(reflectedHit - sphereCenter ); // Change to Intersected Sphere
+                    vec3 reflectedLightDir = normalize(uLightPosition - reflectedHit);
+                    float reflectedDiff = max(dot(reflectedLightDir, reflectedNormal), 0.0);
+                    vec3 reflectedDiffuse = reflectedDiff * vec3(uLightColor);
+
+                    vec3 finalColor = mix(reflectedDiffuse, reflectedColor, reflectionFactor); 
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
+                else {
+                    // Background color
+                    vec3 backgroundColor = vec3(0.8, 0.9, 1.0);
+
+                    // Calculate the color of the reflection (even if it doesn't hit another object)
+                    // Note: This could be simplified or adjusted based on how you want to handle non-intersecting reflections
+                    vec3 reflectedHit = reflectedRay.origin + tReflected * reflectedRay.direction;
+                    vec3 reflectedNormal = normalize(reflectedHit - sphereCenter);
+                    vec3 reflectedLightDir = -normalize(uLightPosition - reflectedHit);
+                    float reflectedDiff = max(dot(reflectedLightDir, reflectedNormal), 0.0);
+                    vec3 reflectedDiffuse = reflectedDiff * vec3(uLightColor);
+
+                    // Mix the reflection color with the background color
+                    vec3 finalColor = mix(diffuse, reflectedDiffuse, fresnelFactor);
+                    
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
             } else {
-                gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                gl_FragColor = vec4(0.8, 0.9, 1.0, 1.0); 
             }
         }
     </script>
@@ -129,7 +183,8 @@
         let vertexArray, vertexBuffer, indexArray, indexBuffer;
 
         // Rendering data
-        let uCanvas, uModelMatrix, uViewMatrix, uProjectionMatrix, uLightPosition, uLightColor, uSphereCenter,
+        let uCanvas, uModelMatrix, uViewMatrix, uProjectionMatrix, uLightPosition, uLightColor, uReflectivity,
+            uSphereCenter,
             uSphereRadius,
             uCameraPos, uInverseViewMatrix, uInverseProjectionMatrix, shaderProgram;
 
@@ -152,6 +207,8 @@
             parseFloat(document.getElementById('lz').value)
         ];
 
+        let Reflectivity = parseFloat(document.getElementById('rf').value);
+
         let lightColor = [1.0, 0.0, 1.0, 1.0];
 
 
@@ -173,12 +230,16 @@
             gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexArray), gl.STATIC_DRAW);
         };
 
+
         const updateInfo = () => {
             lightPosition = [
                 parseFloat(document.getElementById('lx').value),
                 parseFloat(document.getElementById('ly').value),
                 parseFloat(document.getElementById('lz').value)
             ];
+
+
+            Reflectivity = parseFloat(document.getElementById('rf').value);
 
             const t = document.getElementById('spheres').value.split('\n');
             spherePositions = t.map(x => x.split(' ').map(y => parseFloat(y)));
@@ -266,6 +327,8 @@
             gl.uniformMatrix4fv(uInverseViewMatrix, false, inverseViewMatrix);
             gl.uniformMatrix4fv(uInverseProjectionMatrix, false, inverseProjectionMatrix);
 
+            gl.uniform1f(uReflectivity, Reflectivity);
+
             spherePositions.forEach((position, index) => {
                 let modelMatrix = mat4.create();
                 mat4.translate(modelMatrix, modelMatrix, position);
@@ -283,8 +346,10 @@
                 gl.drawElements(gl.TRIANGLES, indexArray.length, gl.UNSIGNED_SHORT, 0);
             });
 
-      requestAnimationFrame(animateScene);
-    };
+
+
+            requestAnimationFrame(animateScene);
+        };
 
 
         const startup = () => {
@@ -317,6 +382,7 @@
             uSphereCenter = gl.getUniformLocation(shaderProgram, 'sphereCenter');
             uSphereRadius = gl.getUniformLocation(shaderProgram, 'sphereRadius');
             uCameraPos = gl.getUniformLocation(shaderProgram, 'cameraPos');
+            uReflectivity = gl.getUniformLocation(shaderProgram, 'uReflectivity');
 
             vertexArray = [];
 
