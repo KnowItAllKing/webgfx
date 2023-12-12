@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>WebGL Spheres</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+    <canvas id="canvas" width="600" height="400"></canvas>
+
+    <script>
+        let gl = null;
+        let glCanvas = null;
+
+        // Aspect ratio and coordinate system
+        // details
+
+        let aspectRatio;
+        let currentRotation = [0, 1];
+        let currentScale = [1.0, 1.0];
+
+        // Vertex information
+
+        let vertexArray;
+        let vertexBuffer;
+        let vertexNumComponents;
+        let vertexCount;
+
+        // Rendering data shared with the
+        // scalers.
+        let uModelMatrix;
+        let uViewMatrix;
+        let uProjectionMatrix;
+        let uScalingFactor;
+        let uGlobalColor;
+        let uRotationVector;
+        let aVertexPosition;
+        let uColor;
+
+        // Animation timing
+
+        let shaderProgram;
+        let currentAngle;
+        let previousTime = 0.0;
+        let degreesPerSecond = 90.0;
+
+        const spherePositions = [
+            [0, 0, 0],
+            [10, 0, 0],
+            [-10, 0, 0]
+        ];
+
+        const sphereColors = [
+            [1.0, 0.0, 0.0, 1.0], // Red
+            [0.0, 1.0, 0.0, 1.0], // Green
+            [0.0, 0.0, 1.0, 1.0] // Blue
+        ];
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js" defer></script>
+    <script src="object.js" defer></script>
+    <script src="util.js" defer></script>
+    <script src="script.js" defer></script>
+
+
+    <script>
+        window.addEventListener("load", () => {
+            const canvas = document.getElementById("canvas");
+            gl = canvas.getContext("webgl");
+
+            if (!gl) {
+                alert("WebGL not supported");
+                return;
+            }
+
+            // Initialize Shader Program
+            const shaderProgram = buildShaderProgram(gl, [{
+                    type: gl.VERTEX_SHADER,
+                    id: "vertex-shader"
+                },
+                {
+                    type: gl.FRAGMENT_SHADER,
+                    id: "fragment-shader"
+                }
+            ]);
+            gl.useProgram(shaderProgram);
+
+            // Load and parse the OBJ file data
+            const sphereGeometry = Geometry.parseOBJ(sphere);
+            const sphereMesh = new Mesh(gl, sphereGeometry);
+
+            // Set up camera and view
+            const camera = new Camera();
+            camera.setPerspective(45, gl.canvas.width / gl.canvas.height, 0.1, 100);
+            camera.lookAt([0, 0, -20], [0, 0, 0], [0, 1, 0]);
+
+            // Animation loop
+            function animate() {
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+                gl.clearColor(0.8, 0.9, 1.0, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                // Render the mesh
+                sphereMesh.draw(shaderProgram, camera);
+
+                requestAnimationFrame(animate);
+            }
+            animate();
+        });
+    </script>
+
+    <!-- Vertex Shader -->
+    <script id="vertex-shader" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+    uniform mat4 uModelMatrix;
+    uniform mat4 uViewMatrix;
+    uniform mat4 uProjectionMatrix;
+
+    void main() {
+      gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aVertexPosition, 1.0);
+    }
+  </script>
+
+    <!-- Fragment Shader -->
+    <script id="fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+    precision highp float;
+    #endif
+
+    uniform vec4 uColor;
+
+    void main() {
+      gl_FragColor = uColor;
+    }
+  </script>
+</body>
+
+</html>

@@ -1,3 +1,6 @@
+
+
+
 const generateIndicesForSphere = (latitudeLines, longitudeLines) => {
     const indices = [];
 
@@ -35,3 +38,31 @@ const generateSphereVertices = (radius, lat, long) => {
     }
     return new Float32Array(vertices);
 };
+
+
+
+const createQuad = (bottom_left, top_right) => {
+    let depth = bottom_left[2]; // we will set Z of all points equal
+
+    let x1 = bottom_left[0];
+    let y1 = bottom_left[1];
+    let x2 = top_right[0];
+    let y2 = top_right[1];
+
+    const vertices = [
+        [x1, y2, depth],   // bottom left
+        [x2, y2, depth],    // bottom right
+        [x2, y1, depth],    // top right 
+        [x1, y1, depth]    // top left
+    ];
+
+    const indices = [
+        0, 1, 2, 
+        2, 3, 0
+    ];
+
+    return {
+        vertices: new Float32Array(vertices),
+        indices
+    }; 
+}
